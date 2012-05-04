@@ -1,0 +1,65 @@
+
+seagame.erl:
+	TCP front-end, for each incoming TCP connection:
+		spawns a client handler process
+		read TCP data and translate it into {command, paramater} tuples for the client
+
+	TODO: HTTP front-end, for each HTTP request:
+		if the request has no session ID cookie, generate one
+		look up the client handler for that ID
+		turn the request into a {command, paramater} tuple and send that to the client handler
+
+client.erl:
+	client handler process, accepts {command, paramater} tuples, checks them for validity
+	and interacts with the rest of the system on the client's behalf
+
+
+
+
+tcp front end         http front end
+       ^                 ^
+	   |				 |
+        --->  client <---
+		        ^
+				|
+				V
+               ship
+
+
+front end -> client commands:
+  buyShip             - buy a generic ship and board it
+  boardShip <ShipPid> - attach the client to a Ship process
+  setThrust <0-100>   - if in a ship, set ship's thrust percentage
+  setTurn <0-100>     - if in a ship, set ship's turn percentage
+ 
+
+
+seagame:
+	start() ->
+		starts the world
+		starts the TCP front-end
+		% starts the HTTP front-end
+	
+	test() ->
+		starts the world
+		starts a client
+		sends the client some commands
+
+tcp_front_end:
+	start_linked(Port) ->
+		starts clients, sends those clients messages
+
+client:
+	start(Frontend) ->
+		recieves messages, acts on them
+		sends responses to the frontend
+
+world:
+	get_zone(World, ZoneName) ->
+		{ok, ZonePid}.
+
+zone:
+	add_object(Zone, Object) -> ok
+	remove_object(Zone, Object) -> ok
+	get_objects(Zone) -> [...]
+	broadcast_to_objects(Zone, Msg) -> ok
