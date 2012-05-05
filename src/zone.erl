@@ -29,6 +29,7 @@ handle_call({removeObject, Object}, _From, State) ->
 
 handle_call({broadcastToObjects, News}, _From, State) ->
 	io:format("Zone ~p broadcasting to objects ~p~n", [State#zone.name, News]),
+	lists:foreach(fun(Obj) -> Obj ! News end, ordsets:to_list(State#zone.objects)),
 	{reply, ok, State};
 
 
@@ -45,6 +46,7 @@ handle_call({removeClient, Client}, _From, State) ->
 
 handle_call({broadcastToClients, News}, _From, State) ->
 	io:format("Zone ~p broadcasting to clients ~p~n", [State#zone.name, News]),
+	lists:foreach(fun(Obj) -> Obj ! {msg, News} end, ordsets:to_list(State#zone.clients)),
 	{reply, ok, State};
 
 
