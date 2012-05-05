@@ -19,18 +19,29 @@ test() ->
 
 
 start() ->
-	world:start_link(),
-	authdb:start_link(),
-	tcp_front_end:start_link(1234),
-	http_front_end:start_link(8000).
+	process_flag(trap_exit, true),
+	{ok, WorldPid} = world:start_link(),
+	{ok, AuthDBPid} = authdb:start_link(),
+	{ok, TCPPid} = tcp_front_end:start_link(1234),
+	{ok, HTTPPid} = http_front_end:start_link(8000),
+	loop(WorldPid, AuthDBPid, TCPPid, HTTPPid).
 
-
-%request_handler(Request) ->
-%	SessionHandlerId = if
-%		Request#request.cookie -> 
-%			Request#request.cookie;
-%		true ->
-%			newSessionId()
-%	end,
-%	SessionHandler = findSessionHandler(SessionHandlerId),
-%	SessionHandler ! {clientRequest, decode_json(Request#request.data)}.
+loop(WorldPid, AuthDBPid, TCPPid, HTTPPid) ->
+	receive
+		{'EXIT', WorldPid, Reason} ->
+			io:format("WARN: World exited with reason: ~p~n", [Reason]),
+			{ok, NewWorldPid} = world:start_link(),
+			loop(NewWorldPid, AuthDBPid, TCPPid, HTTPPid);
+		{'EXIT', AuthDBPid, Reason} ->
+			io:format("WARN: AuthDB exited with reason: ~p~n", [Reason]),
+			{ok, NewAuthDBPid} = authdb:start_link(),
+			loop(WorldPid, NewAuthDBPid, TCPPid, HTTPPid);
+		{'EXIT', TCPPid, Reason} ->
+			io:format("WARN: TCP exited with reason: ~p~n", [Reason]),
+			{ok, NewTCPPid} = world:start_link(),
+			loop(WorldPid, AuthDBPid, NewTCPPid, HTTPPid);
+		{'EXIT', HTTPPid, Reason} ->
+			io:format("WARN: HTTP exited with reason: ~p~n", [Reason]),
+			{ok, NewHTTPPid} = world:start_link(),
+			loop(WorldPid, AuthDBPid, TCPPid, NewHTTPPid)
+	end.
