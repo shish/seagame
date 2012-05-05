@@ -19,7 +19,8 @@ test() ->
 
 
 start() ->
-	{ok, _World} = world:start_link(),
+	world:start_link(),
+	authdb:start_link(),
 	tcp_front_end:start_link(1234),
 	http_front_end:start_link(8000).
 
