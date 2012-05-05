@@ -2,4 +2,4 @@
 -export([start_link/1]).
 
 start_link(_Port) ->
-	{error, not_implemented}.
+	{ok, not_implemented}.
