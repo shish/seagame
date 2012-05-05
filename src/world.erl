@@ -51,7 +51,7 @@ code_change(_PreviousVersion, State, _Extra) ->
 start_link() ->
 	{ok, Pid} = gen_server:start_link(?MODULE, [], []),
 	register(world, Pid),
-	Pid.
+	{ok, Pid}.
 
 get_zone(ZoneName) ->
 	gen_server:call(world, {get_zone, ZoneName}).
