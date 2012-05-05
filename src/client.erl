@@ -16,38 +16,53 @@ clientProcess(Client) ->
 				true ->
 					true
 			end,
-			disconnect;
+			exit(disconnect);
 		{cmd, Cmd} -> 
 			io:format("Client ~p got command: ~p~n", [Client#client.name, Cmd]),
 			ChangedClient = handleClientCommand(Client, Cmd),
 			clientProcess(ChangedClient);
-		{reply, Msg} ->
-			io:format("Client ~p got reply: ~p~n", [Client#client.name, Msg]),
-			Client#client.frontend ! Msg;
+		{msg, Msg} ->
+			io:format("Client ~p got message: ~p~n", [Client#client.name, Msg]),
+			Client#client.frontend ! Msg,
+			clientProcess(Client);
 		X -> 
 			io:format("Client ~p got unknown message: ~p~n", [Client#client.name, X]),
 			clientProcess(Client)
 	end.
 
 handleClientCommand(Client, {"login", Username, Password}) ->
-	% check auth DB
-	{ok, UserInfo} = authdb:login(Username, Password),
-	ClientWithName = Client#client{
-		name=UserInfo#user.name,
-		zone_pid=world:get_zone(UserInfo#user.home_zone_name)
-	},
-	ClientWithName;
+	{ok, UserInfo} = authdb:get_user(Username, Password),
+	io:format("INFO: Client ~p logged in as ~p~n", [self(), UserInfo#user.name]),
+	ClientWithName = Client#client{name=UserInfo#user.name},
+	ClientWithZone = handleClientCommand(ClientWithName, {"setZone", UserInfo#user.home_zone_name}),
+	ClientWithZone;
+
+handleClientCommand(Client, {"ping"}) ->
+	self() ! {msg, {"pong"}},
+	Client;
 
 handleClientCommand(Client, {"setZone", ZoneName}) ->
 	{ok, ZonePid} = world:get_zone(ZoneName),
-	self() ! {reply, {"notification", "Slipstreaming to new zone"}},
 	if
 		is_pid(Client#client.zone_pid) ->
-			zone:remove_client(Client#client.zone_pid, self());
+			zone:remove_client(Client#client.zone_pid, self()),
+			if
+				is_pid(Client#client.ship_pid) ->
+					self() ! {msg, {"notification", "Slipstreaming to new zone"}},
+					zone:remove_object(Client#client.zone_pid, Client#client.ship_pid);
+				true ->
+					true
+			end;
 		true ->
 			true
 	end,
 	zone:add_client(ZonePid, self()),
+	if
+		is_pid(Client#client.ship_pid) ->
+			zone:add_object(ZonePid, Client#client.ship_pid);
+		true ->
+			true
+	end,
 	ClientWithZone = Client#client{zone_pid = ZonePid},
 	ClientWithZone;
 

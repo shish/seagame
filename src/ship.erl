@@ -24,7 +24,7 @@ broadcastShipStatus(Ship) ->
 	io:format("Broadcasting ship status to zone ~p~n", [Ship#ship.zone_pid]),
 	if
 		is_pid(Ship#ship.zone_pid) ->
-			gen_server:call(Ship#ship.zone_pid, {broadcast, {shipStatus, Ship}});
+			zone:broadcast_to_clients(Ship#ship.zone_pid, {shipStatus, Ship});
 		true ->
 			true
 	end.
