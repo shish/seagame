@@ -24,7 +24,7 @@ handle_call({get_user, Username, Password}, _From, Db) ->
 			{reply, {error, "Invalid Username"}, Db};
 		{value, Val} ->
 			case Val of
-				Password -> {reply, {ok, #user{name=Username, home_zone_name="Home Zone"}}, Db};
+				Password -> {reply, {ok, #user{name=Username, home_zone_name="Home_Zone"}}, Db};
 				_        -> {reply, {error, "Invalid Password"}, Db}
 			end
 	end;
