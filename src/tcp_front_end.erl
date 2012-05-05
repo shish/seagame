@@ -22,20 +22,22 @@ tcp_input_handler(Socket) ->
 	tcp_input_handler(client:start(self()), Socket).
 
 tcp_input_handler(ClientPid, Socket) ->
-	case gen_tcp:recv(Socket, 0, 0) of
+	case gen_tcp:recv(Socket, 0, 100) of
 		{ok, Bin} ->
-			io:format("Sending data to ~p: ~p~n", [ClientPid, binary_to_term(Bin)]),
-			ClientPid ! {cmd, binary_to_term(Bin)},
-			tcp_input_handler(ClientPid, Socket);
+			io:format("Got data from network, sending to ~p: ~p~n", [ClientPid, binary_to_term(Bin)]),
+			ClientPid ! {cmd, binary_to_term(Bin)};
+		{error, timeout} ->
+			nowt;
 		{error, closed} ->
 			io:format("Socket closed for client ~p~n", [ClientPid]),
 			ClientPid ! disconnect,
-			false
+			exit("Socket disconnected")
 	end,
 	receive
 		X ->
-			gen_tcp:send(Socket, term_to_binary(X)),
-			tcp_input_handler(ClientPid, Socket)
+			io:format("Got data from ~p, sending to network: ~p~n", [ClientPid, X]),
+			gen_tcp:send(Socket, term_to_binary(X))
 	after 100 ->
-		tcp_input_handler(ClientPid, Socket)
-	end.
+		nowt
+	end,
+	tcp_input_handler(ClientPid, Socket).
