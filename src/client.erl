@@ -1,6 +1,6 @@
 -module(client).
 -include("records.hrl").
--export([start/1, clientProcess/1]).
+-export([start/1, clientProcess/1, send_to_frontend/2]).
 
 start(Frontend) ->
 	spawn(client, clientProcess, [#client{name=undefined, frontend=Frontend, ship_pid=undefined, active=true, zone_pid=undefined}]).
@@ -33,12 +33,13 @@ clientProcess(Client) ->
 handleClientCommand(Client, {"login", Username, Password}) ->
 	{ok, UserInfo} = authdb:get_user(Username, Password),
 	io:format("INFO: Client ~p logged in as ~p~n", [self(), UserInfo#user.name]),
+	client:send_to_frontend(Client, {"notification", "Login Successful"}),
 	ClientWithName = Client#client{name=UserInfo#user.name},
 	ClientWithZone = handleClientCommand(ClientWithName, {"setZone", UserInfo#user.home_zone_name}),
 	ClientWithZone;
 
 handleClientCommand(Client, {"ping"}) ->
-	self() ! {msg, {"pong"}},
+	client:send_to_frontend(Client, {"pong"}),
 	Client;
 
 handleClientCommand(Client, {"setZone", ZoneName}) ->
@@ -48,10 +49,10 @@ handleClientCommand(Client, {"setZone", ZoneName}) ->
 			zone:remove_client(Client#client.zone_pid, self()),
 			if
 				is_pid(Client#client.ship_pid) ->
-					self() ! {msg, {"notification", "Slipstreaming to new zone"}},
+					client:send_to_frontend(Client, {"notification", "Slipstreaming to new zone"}),
 					zone:remove_object(Client#client.zone_pid, Client#client.ship_pid);
 				true ->
-					true
+					client:send_to_frontend(Client, {"notification", "Setting zone"})
 			end;
 		true ->
 			true
@@ -83,3 +84,12 @@ handleClientCommand(Client, {"setThrust", N}) ->
 handleClientCommand(Client, {"setTurn", N}) ->
 	Client#client.ship_pid ! {setTurn, util:clamp(-100, N, 100)},
 	Client.
+
+
+send_to_frontend(Client, Msg) ->
+	if
+		is_pid(Client) ->
+			Client ! {msg, Msg};
+		is_tuple(Client) ->
+			Client#client.frontend ! {msg, Msg}
+	end.

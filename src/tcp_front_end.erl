@@ -3,7 +3,8 @@
 
 
 start_link(Port) ->
-	spawn_link(tcp_front_end, start_tcp_server, [Port]).
+	Pid = spawn_link(tcp_front_end, start_tcp_server, [Port]),
+	{ok, Pid}.
 
 
 start_tcp_server(Port) ->
@@ -34,7 +35,7 @@ tcp_input_handler(ClientPid, Socket) ->
 			exit("Socket disconnected")
 	end,
 	receive
-		X ->
+		{msg, X} ->
 			io:format("Got data from ~p, sending to network: ~p~n", [ClientPid, X]),
 			gen_tcp:send(Socket, term_to_binary(X))
 	after 100 ->
