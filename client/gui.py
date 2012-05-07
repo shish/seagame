@@ -9,11 +9,23 @@ from py_interface import erl_term
 
 VERSION="0.0.0"
 
+MODE_UNKNOWN=1
+MODE_DOCK=2
+MODE_SEA=3
+
+
 def typify(data):
     try:
         return float(data)
     except:
         return data
+
+
+class ShipStatus:
+    def __init__(self, stats):
+        for tup in stats:
+            setattr(self, tup[0].atomText, tup[1:])
+
 
 class _App:
     def __menu(self, master):
@@ -51,12 +63,21 @@ class _App:
         self.master = master
         self.menu = self.__menu(master)
         self.last_ping = time.time()
+        self.notifications = []
+        self.mode = MODE_UNKNOWN
+        self.server_time = (0, 0, 0)
+        self.ship_statuses = {}
+
+        self.canvas = Canvas(
+            master,
+            background="cyan"
+        )
 
         self.h = Scrollbar(master, orient=HORIZONTAL)
         self.v = Scrollbar(master, orient=VERTICAL)
         self.output = Text(
             master,
-            width=80, height=25,
+            width=80, height=5,
             xscrollcommand=self.h.set,
             yscrollcommand=self.v.set
         )
@@ -68,10 +89,11 @@ class _App:
 
         master.grid_columnconfigure(0, weight=1)
         master.grid_rowconfigure(1, weight=1)
-        self.output.grid(  column=0, row=1, sticky=(N, W, E, S))
-        self.v.grid(       column=1, row=1, sticky=(N, S))
-        self.h.grid(       column=0, row=2, sticky=(W, E))
-        self.input.grid(   column=0, row=3, sticky=(W, E))
+        self.canvas.grid(  column=0, row=1, sticky=(N, W, E, S))
+        self.output.grid(  column=0, row=2, sticky=(W, E))
+        self.v.grid(       column=1, row=2, sticky=(N, S))
+        self.h.grid(       column=0, row=3, sticky=(W, E))
+        self.input.grid(   column=0, row=4, sticky=(W, E))
 
         self.input.focus_set()
 
@@ -79,6 +101,78 @@ class _App:
         self.socket.connect(("127.0.0.1", 1234))
 
         self.master.createfilehandler(self.socket, tkinter.READABLE, self.handle_network_input)
+        self.render_loop()
+
+    def render_loop(self):
+        view_w = self.canvas.winfo_width()
+        view_h = self.canvas.winfo_height()
+
+        self.canvas.delete(ALL)
+        if self.mode == MODE_DOCK:
+            self.canvas.create_text(
+                3, 3,
+                text="Dock Mode", tags="notification", anchor=NW, width=300,
+                font="TkFixedFont",
+                state="disabled",
+            )
+        elif self.mode == MODE_SEA:
+            self.render_sea(view_w, view_h)
+        else:
+             self.canvas.create_text(
+                3, 3,
+                text="Unknown Mode", tags="notification", anchor=NW, width=300,
+                font="TkFixedFont",
+                state="disabled",
+            )
+        self.render_common(view_w, view_h)
+        self.master.after(200, self.render_loop)
+
+    def render_sea(self, view_w, view_h):
+        x0 = view_w/2
+        y0 = view_h/2
+        self.canvas.create_text(
+            3, 3,
+            text="Sea Mode", tags="notification", anchor=NW, width=300,
+            font="TkFixedFont",
+            state="disabled",
+        )
+        for shipname in self.ship_statuses:
+            ship = self.ship_statuses[shipname]
+            self.canvas.create_rectangle(
+                x0+ship.location[0],    y0+ship.location[1],
+                x0+ship.location[0]+10, y0+ship.location[1]+10,
+                fill="#afa", outline="#000", tags="ship",
+                state="disabled",
+            )
+
+    def render_common(self, view_w, view_h):
+        w = 300
+        h = 20
+        x = (view_w-w)/2
+        y = 50
+        now = time.time()
+        self.notifications = filter(lambda n: n[0]>now-5, self.notifications)
+        for n, (ntime, text) in enumerate(self.notifications):
+            self.canvas.create_rectangle(
+                x, y-n*h*1.5,
+                x+w, y+h-n*h*1.5,
+                fill="#ddd", outline="#000", tags="notification",
+                state="disabled",
+            )
+            self.canvas.create_text(
+                x+w/2, y+h/2-n*h*1.5,
+                text=text, tags="notification", width=300,
+                font="TkFixedFont",
+                state="disabled",
+            )
+
+        self.canvas.create_text(
+            view_w-3, 3,
+            text="%02d:%02d" % (self.server_time[0], self.server_time[1]),
+            tags="notification", anchor=NE,
+            font="TkFixedFont",
+            state="disabled",
+        )
 
     def handle_user_input(self, e):
         d = self.input.get()
@@ -95,9 +189,18 @@ class _App:
             msg_type = term[0].atomText
 
         if msg_type == "notification":
-            self.show_text("NOTIFICATION: "+str(term[1]))
+            self.notifications.insert(0, (time.time(), str(term[1])))
         elif msg_type == "pong":
             self.show_text("PING-PONG: "+str(time.time() - self.last_ping))
+        elif msg_type == "board_ship":
+            self.mode = MODE_SEA
+        elif msg_type == "leave_ship":
+            self.mode = MODE_DOCK
+        elif msg_type == "time":
+            self.server_time = term[1]
+        elif msg_type == "ship_status":
+            ship_status = ShipStatus(term[1])
+            self.ship_statuses[ship_status.name] = ship_status
         else:
             self.show_text("unknown message: "+str(term))
 

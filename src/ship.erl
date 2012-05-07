@@ -1,11 +1,11 @@
 -module(ship).
 -include("records.hrl").
--export([start/1, test/0, shipProcess/1]).
+-export([start/2, test/0, shipProcess/1]).
 
 
 test() ->
 	Zone = zone:start_link("Test Zone"),
-	Ship = ship:start(Zone),
+	Ship = ship:start(Zone, "Test Ship"),
 	Client = client:start(),
 	Ship ! {setCaptain, Client},
 	Ship ! {setThrust, 100},
@@ -14,8 +14,10 @@ test() ->
 	init:stop(). % make sure the ship exits
 
 
-start(ZoneId) ->
-	spawn(ship, shipProcess, [#ship{x=0, y=0, direction=0, turn=0, thrust=0, velocity=0, captain_id=undefined, health=100, zone_pid=ZoneId}]).
+start(ZoneId, Name) ->
+	Pid = spawn(ship, shipProcess, [#ship{name=Name, x=0, y=0, direction=0, turn=0, thrust=0, velocity=0, captain_id=undefined, health=100, zone_pid=ZoneId}]),
+	zone:add_object(ZoneId, Pid),
+	Pid.
 
 
 broadcastShipStatus(Ship) ->
@@ -24,7 +26,12 @@ broadcastShipStatus(Ship) ->
 	io:format("Broadcasting ship status to zone ~p~n", [Ship#ship.zone_pid]),
 	if
 		is_pid(Ship#ship.zone_pid) ->
-			zone:broadcast_to_clients(Ship#ship.zone_pid, {shipStatus, Ship});
+			zone:broadcast_to_clients(Ship#ship.zone_pid, {ship_status, [
+				{name, Ship#ship.name},
+				{location, Ship#ship.x, Ship#ship.y, Ship#ship.direction, Ship#ship.velocity},
+				{vector, Ship#ship.thrust, Ship#ship.turn},
+				{health, Ship#ship.health}
+			]});
 		true ->
 			true
 	end.
@@ -51,11 +58,11 @@ shipProcess(Ship) ->
 			io:format("Ship ~p got command ~p~n", [self(), Cmd]),
 			UpdatedShip = handleShipCommand(Ship, Cmd),
 			broadcastShipStatus(UpdatedShip)
-	after 1000 ->
-		UpdatedShip = Ship
 	end,
-	ProcessedShip = UpdatedShip#ship{x=calcMovedX(Ship), y=calcMovedY(Ship), velocity=calcVelocity(Ship), direction=calcDirection(Ship)},
-	shipProcess(ProcessedShip).
+	shipProcess(UpdatedShip).
+
+handleShipCommand(Ship, {tick}) ->
+	Ship#ship{x=calcMovedX(Ship), y=calcMovedY(Ship), velocity=calcVelocity(Ship), direction=calcDirection(Ship)};
 
 handleShipCommand(Ship, {setCaptain, C}) ->
 %	if
