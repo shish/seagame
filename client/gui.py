@@ -5,6 +5,7 @@ import sys
 import socket
 import select
 import time
+import math
 from py_interface import erl_term
 
 VERSION="0.0.0"
@@ -12,6 +13,8 @@ VERSION="0.0.0"
 MODE_UNKNOWN=1
 MODE_DOCK=2
 MODE_SEA=3
+
+AUTORUN=["login bob test"]
 
 
 def typify(data):
@@ -21,10 +24,19 @@ def typify(data):
         return data
 
 
-class ShipStatus:
+class TupleDict:
     def __init__(self, stats):
         for tup in stats:
-            setattr(self, tup[0].atomText, tup[1:])
+            if len(tup) == 2:
+                setattr(self, tup[0].atomText, tup[1])
+            else:
+                setattr(self, tup[0].atomText, tup[1:])
+
+class ZoneStatus(TupleDict):
+    pass
+
+class ShipStatus(TupleDict):
+    pass
 
 
 class _App:
@@ -67,6 +79,7 @@ class _App:
         self.mode = MODE_UNKNOWN
         self.server_time = (0, 0, 0)
         self.ship_statuses = {}
+        self.zone_status = None
 
         self.canvas = Canvas(
             master,
@@ -101,6 +114,8 @@ class _App:
         self.socket.connect(("127.0.0.1", 1234))
 
         self.master.createfilehandler(self.socket, tkinter.READABLE, self.handle_network_input)
+        for cmd in AUTORUN:
+            self.send(cmd)
         self.render_loop()
 
     def render_loop(self):
@@ -130,9 +145,12 @@ class _App:
     def render_sea(self, view_w, view_h):
         x0 = view_w/2
         y0 = view_h/2
+        text = "Sea Mode"
+        if self.zone_status:
+            text = text + ": " + str(self.zone_status.name)
         self.canvas.create_text(
             3, 3,
-            text="Sea Mode", tags="notification", anchor=NW, width=300,
+            text=text, tags="notification", anchor=NW, width=300,
             font="TkFixedFont",
             state="disabled",
         )
@@ -143,6 +161,12 @@ class _App:
                 x0+ship.location[0]+10, y0+ship.location[1]+10,
                 fill="#afa", outline="#000", tags="ship",
                 state="disabled",
+            )
+            ship.location = (
+                ship.location[0] + math.cos(ship.location[3]) * ship.location[2] * 0.2,
+                ship.location[1] + math.sin(ship.location[3]) * ship.location[2] * 0.2,
+                ship.location[2] + ship.vector[0],
+                ship.location[3] + ship.vector[1]
             )
 
     def render_common(self, view_w, view_h):
@@ -201,6 +225,8 @@ class _App:
         elif msg_type == "ship_status":
             ship_status = ShipStatus(term[1])
             self.ship_statuses[ship_status.name] = ship_status
+        elif msg_type == "zone":
+            self.zone_status = ZoneStatus(term[1])
         else:
             self.show_text("unknown message: "+str(term))
 
