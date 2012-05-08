@@ -25,7 +25,7 @@ tcp_input_handler(Socket) ->
 tcp_input_handler(ClientPid, Socket) ->
 	case gen_tcp:recv(Socket, 0, 100) of
 		{ok, Bin} ->
-			io:format("Got data from network, sending to ~p: ~p~n", [ClientPid, binary_to_term(Bin)]),
+			io:format("TCP Frontend ~p got data from network, sending to ~p:~n  ~p~n", [self(), ClientPid, binary_to_term(Bin)]),
 			ClientPid ! {cmd, binary_to_term(Bin)};
 		{error, timeout} ->
 			nowt;
@@ -36,7 +36,7 @@ tcp_input_handler(ClientPid, Socket) ->
 	end,
 	receive
 		{msg, X} ->
-			io:format("Got data from ~p, sending to network: ~p~n", [ClientPid, X]),
+			io:format("TCP Frontend ~p got data from ~p, sending to network:~n  ~p~n", [self(), ClientPid, X]),
 			gen_tcp:send(Socket, term_to_binary(X))
 	after 100 ->
 		nowt
