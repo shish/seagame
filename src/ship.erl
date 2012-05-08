@@ -1,41 +1,95 @@
 -module(ship).
+-behaviour(gen_server).
 -include("records.hrl").
--export([start/2, test/0, shipProcess/1]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([start_link/2, set_captain/2, set_thrust/2, set_turn/2]).
 
 
-test() ->
-	Zone = zone:start_link("Test Zone"),
-	Ship = ship:start(Zone, "Test Ship"),
-	Client = client:start(),
-	Ship ! {setCaptain, Client},
-	Ship ! {setThrust, 100},
-	Ship ! {setTurn, 100},
-	Client ! disconnect,
-	init:stop(). % make sure the ship exits
+% gen_server API
+
+init([ZonePid, Name]) ->
+	process_flag(trap_exit, true),
+	{ok, #ship{name=Name, x=0, y=0, direction=0, turn=0, thrust=0, velocity=0, captain_id=undefined, health=100, zone_pid=ZonePid}}.
 
 
-start(ZoneId, Name) ->
-	Pid = spawn(ship, shipProcess, [#ship{name=Name, x=0, y=0, direction=0, turn=0, thrust=0, velocity=0, captain_id=undefined, health=100, zone_pid=ZoneId}]),
-	zone:add_object(ZoneId, Pid),
-	Pid.
-
-
-broadcastShipStatus(Ship) ->
-%	io:format("Ship status: ~p~n", [Ship]).
-%	io:format("Ship status: pos=(~p,~p) dir=(~p,~p)~n", [Ship#ship.x, Ship#ship.y]).
-	io:format("Broadcasting ship status to zone ~p~n", [Ship#ship.zone_pid]),
+handle_call({set_captain, C}, _From, Ship) ->
 	if
-		is_pid(Ship#ship.zone_pid) ->
-			zone:broadcast_to_clients(Ship#ship.zone_pid, {ship_status, [
-				{name, Ship#ship.name},
-				{location, Ship#ship.x, Ship#ship.y, Ship#ship.direction, Ship#ship.velocity},
-				{vector, Ship#ship.thrust, Ship#ship.turn},
-				{health, Ship#ship.health}
-			]});
+		is_pid(Ship#ship.captain_id) ->
+			unlink(Ship#ship.captain_id);
 		true ->
 			true
-	end.
+	end,
+    UpdatedShip = Ship#ship{captain_id=C},
+	if
+		is_pid(UpdatedShip#ship.captain_id) ->
+			link(UpdatedShip#ship.captain_id);
+		true ->
+			true
+	end,
+	{reply, {}, UpdatedShip};
 
+handle_call({set_zone, Z}, _From, Ship) ->
+	zone:remove_object(Ship#ship.zone_pid, self()),
+	UpdatedShip = Ship#ship{zone_pid=Z},
+	zone:add_object(UpdatedShip#ship.zone_pid, self()),
+	{reply, {}, UpdatedShip};
+
+handle_call({set_thrust, N}, _From, Ship) ->
+	{reply, {}, Ship#ship{thrust=N}};
+
+handle_call({set_turn, N}, _From, Ship) ->
+	{reply, {}, Ship#ship{turn=N}};
+
+handle_call({damage, N}, _From, Ship) ->
+	DamagedShip = Ship#ship{health=Ship#ship.health-N},
+	if
+		DamagedShip#ship.health =< 0 ->
+			io:format("Ship ~p destroyed, exiting~n", [self()]),
+			exit(exploded);
+		DamagedShip#ship.health =< 0 ->
+			DamagedShip
+	end,
+	{reply, {}, DamagedShip};
+
+handle_call(Message, _From, State) ->
+	io:format("Unexpected ship call: ~p~n", [Message]),
+	{reply, {}, State}.
+
+
+handle_cast(Message, State) ->
+	io:format("Unexpected ship cast: ~p~n", [Message]),
+	{noreply, State}.
+
+
+handle_info({tick}, Ship) ->
+	zone:broadcast_to_clients(Ship#ship.zone_pid, ship_to_dict(Ship)),
+	{noreply, Ship#ship{x=calcMovedX(Ship), y=calcMovedY(Ship), velocity=calcVelocity(Ship), direction=calcDirection(Ship)}};
+
+handle_info({'EXIT', Pid, Reason}, Ship) ->
+	if
+		Pid == Ship#ship.captain_id ->
+			io:format("Ship ~p's captain died (~p); ship exiting~n", [self(), Reason]),
+			exit(normal);
+		true ->
+			io:format("Something unexpected died: ~p / ~p~n", [Pid, Reason])
+	end,
+	{noreply, Ship};
+
+handle_info(Message, State) ->
+	io:format("Unexpected ship info: ~p~n", [Message]),
+	{noreply, State}.
+
+
+terminate(Reason, State) ->
+	%NewState = State#ship{},
+	{stop, Reason, State}.
+
+
+code_change(_PreviousVersion, State, _Extra) ->
+	{ok, State}.
+
+
+% internal API
 
 calcMovedX(Ship) ->
 	Ship#ship.x + math:cos(Ship#ship.direction) * Ship#ship.velocity.
@@ -51,61 +105,31 @@ calcDirection(Ship) ->
 	%util:mod(Ship#ship.direction + Ship#ship.turn, math:pi()*2).
 	Ship#ship.direction + Ship#ship.turn.
 
+ship_to_dict(Ship) ->
+	{
+		ship_status, [
+			{name, Ship#ship.name},
+			{location, Ship#ship.x, Ship#ship.y, Ship#ship.direction, Ship#ship.velocity},
+			{vector, Ship#ship.thrust, Ship#ship.turn},
+			{health, Ship#ship.health}
+		]
+	}.
 
-shipProcess(Ship) ->
-	receive
-		Cmd ->
-			io:format("Ship ~p got command ~p~n", [self(), Cmd]),
-			UpdatedShip = handleShipCommand(Ship, Cmd),
-			broadcastShipStatus(UpdatedShip)
-	end,
-	shipProcess(UpdatedShip).
 
-handleShipCommand(Ship, {tick}) ->
-	Ship#ship{x=calcMovedX(Ship), y=calcMovedY(Ship), velocity=calcVelocity(Ship), direction=calcDirection(Ship)};
+% ship API
 
-handleShipCommand(Ship, {setCaptain, C}) ->
-%	if
-%		Ship#ship.captain_id ->
-%			erlang:unlink(Ship#ship.captain_id);
-%		true ->
-%			true
-%	end,
-	UpdatedShip = Ship#ship{captain_id=C},
-%	if
-%		UpdatedShip#ship.captain_id ->
-%			erlang:link(Ship#ship.captain_id);
-%		true ->
-%			true
-%	end,
-	UpdatedShip;
+set_captain(ShipPid, CaptainPid) ->
+	gen_server:call(ShipPid, {set_captain, CaptainPid}).
 
-handleShipCommand(Ship, {setZone, Z}) ->
-	zone:remove_object(Ship#ship.zone_pid, self()),
-	UpdatedShip = Ship#ship{zone_pid=Z},
-	zone:add_object(UpdatedShip#ship.zone_pid, self()),
-	UpdatedShip;
+set_thrust(ShipPid, N) ->
+	gen_server:call(ShipPid, {set_thrust, N}).
 
-handleShipCommand(Ship, {setThrust, N}) ->
-	Ship#ship{thrust=N};
+set_turn(ShipPid, N) ->
+	gen_server:call(ShipPid, {set_turn, N}).
 
-handleShipCommand(Ship, {setTurn, N}) ->
-	Ship#ship{turn=N};
 
-handleShipCommand(Ship, {damage, N}) ->
-	DamagedShip = Ship#ship{health=Ship#ship.health-N},
-	if
-		DamagedShip#ship.health =< 0 ->
-			io:format("Ship ~p destroyed, exiting~n", [self()]),
-			exit(normal);
-		DamagedShip#ship.health =< 0 ->
-			DamagedShip
-	end;
+start_link(ZoneId, Name) ->
+	{ok, Pid} = gen_server:start_link(?MODULE, [ZoneId, Name], []),
+	zone:add_object(ZoneId, Pid),
+	{ok, Pid}.
 
-handleShipCommand(_Ship, {disconnect}) ->
-	io:format("Ship ~p is out of control, exiting~n", [self()]),
-	exit(normal);
-
-handleShipCommand(Ship, Cmd) ->
-	io:format("Ship got unknown command: ~p~n", [Cmd]),
-	Ship.

@@ -8,25 +8,18 @@ start(Frontend) ->
 clientProcess(Client) ->
 	receive
 		disconnect ->
-			io:format("Client ~p lost its front-end, removing ship ~p and logging out~n", [self(), Client#client.ship_pid]),
-			if
-				is_pid(Client#client.ship_pid) ->
-					Client#client.ship_pid ! {setCaptain, undefined},
-					Client#client.ship_pid ! {disconnect};
-				true ->
-					true
-			end,
+			io:format("Client ~p lost its front-end, logging out~n", [self()]),
 			exit(disconnect);
 		{cmd, Cmd} -> 
-			io:format("Client ~p got command: ~p~n", [Client#client.name, Cmd]),
+			io:format("Client ~p got command:~n  ~p~n", [Client#client.name, Cmd]),
 			ChangedClient = handleClientCommand(Client, Cmd),
 			clientProcess(ChangedClient);
 		{msg, Msg} ->
-			io:format("Client ~p got message: ~p~n", [Client#client.name, Msg]),
+			io:format("Client ~p got message:~n  ~p~n", [Client#client.name, Msg]),
 			Client#client.frontend ! {msg, Msg},
 			clientProcess(Client);
 		X -> 
-			io:format("Client ~p got unknown message: ~p~n", [Client#client.name, X]),
+			io:format("Client ~p got unknown message:~n  ~p~n", [Client#client.name, X]),
 			clientProcess(Client)
 	end.
 
@@ -58,22 +51,26 @@ handleClientCommand(Client, {"setZone", ZoneName}) ->
 		true ->
 			client:send_to_frontend(Client, {"notification", "Teleporting to "++ZoneName})
 	end,
+	client:send_to_frontend(Client, {"zone", [
+		{name, ZoneName},
+		{weather, "clear"}
+	]}),
 	ClientWithZone = Client#client{zone_pid = ZonePid},
 	ClientWithZone;
 
 handleClientCommand(Client, {"buyShip"}) ->
-	ShipPid = ship:start(Client#client.zone_pid, Client#client.name ++ "'s Ship"),
+	{ok, ShipPid} = ship:start_link(Client#client.zone_pid, Client#client.name ++ "'s Ship"),
 	ClientWithShip = handleClientCommand(Client, {"boardShip", ShipPid}),
 	ClientWithShip;
 
 handleClientCommand(Client, {"boardShip", ShipPid}) ->
-	ShipPid ! {setCaptain, self()},
+	ship:set_captain(ShipPid, self()),
 	client:send_to_frontend(Client, {"board_ship"}),
 	ClientWithShip = Client#client{ship_pid = ShipPid},
 	ClientWithShip;
 
 handleClientCommand(Client, {"leaveShip"}) ->
-	Client#client.ship_pid ! {setCaptain, undefined},
+	ship:set_captain(Client#client.ship_pid, undefined),
 	client:send_to_frontend(Client, {"leave_ship"}),
 	ClientWithShip = Client#client{ship_pid = undefined},
 	ClientWithShip;
@@ -83,11 +80,11 @@ handleClientCommand(Client, {"time"}) ->
 	Client;
 
 handleClientCommand(Client, {"setThrust", N}) ->
-	Client#client.ship_pid ! {setThrust, util:clamp(-10, N, 100)},
+	ship:set_thrust(Client#client.ship_pid, util:clamp(-10, N, 100)),
 	Client;
 
 handleClientCommand(Client, {"setTurn", N}) ->
-	Client#client.ship_pid ! {setTurn, util:clamp(-100, N, 100)},
+	ship:set_turn(Client#client.ship_pid, util:clamp(-100, N, 100)),
 	Client.
 
 
