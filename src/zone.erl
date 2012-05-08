@@ -37,7 +37,7 @@ handle_call({broadcastToObjects, News}, _From, State) ->
 		State#zone.objects == [] ->
 			no_objects;
 		true ->
-			io:format("Zone ~p broadcasting to objects ~p~n", [State#zone.name, News]),
+			io:format("Zone ~p broadcasting to objects:~n  ~p~n", [State#zone.name, News]),
 			lists:foreach(fun(Obj) -> Obj ! News end, ordsets:to_list(State#zone.objects))
 	end,
 	{reply, ok, State};
@@ -57,7 +57,7 @@ handle_call({removeClient, Client}, _From, State) ->
 	{reply, ok, NewState};
 
 handle_call({broadcastToClients, News}, _From, State) ->
-	io:format("Zone ~p broadcasting to clients ~p~n", [State#zone.name, News]),
+	io:format("Zone ~p broadcasting to clients:~n  ~p~n", [State#zone.name, News]),
 	lists:foreach(fun(Client) -> client:send_to_frontend(Client, News) end, ordsets:to_list(State#zone.clients)),
 	{reply, ok, State};
 
@@ -80,7 +80,7 @@ handle_cast(Message, State) ->
 %	},
 %	{noreply, NewState};
 
-handle_info({'EXIT', Pid, Reason}, State) ->
+handle_info({'EXIT', Pid, _Reason}, State) ->
 	NewState = State#zone{
 		objects=ordsets:del_element(Pid, State#zone.objects),
 		clients=ordsets:del_element(Pid, State#zone.clients)
