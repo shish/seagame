@@ -2,14 +2,14 @@
 -behaviour(gen_server).
 -include("records.hrl").
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--export([start_link/2, set_captain/2, set_thrust/2, set_turn/2]).
+-export([start_link/2, set_captain/2, set_acceleration/2, set_turn/2]).
 
 
 % gen_server API
 
 init([ZonePid, Name]) ->
 	process_flag(trap_exit, true),
-	{ok, #ship{name=Name, x=0, y=0, direction=0, turn=0, thrust=0, velocity=0, captain_id=undefined, health=100, zone_pid=ZonePid}}.
+	{ok, #ship{name=Name, x=0, y=0, direction=0, turn=0, acceleration=0, velocity=0, captain_id=undefined, health=100, zone_pid=ZonePid}}.
 
 
 handle_call({set_captain, C}, _From, Ship) ->
@@ -34,8 +34,8 @@ handle_call({set_zone, Z}, _From, Ship) ->
 	zone:add_object(UpdatedShip#ship.zone_pid, self()),
 	{reply, {}, UpdatedShip};
 
-handle_call({set_thrust, N}, _From, Ship) ->
-	{reply, {}, Ship#ship{thrust=N}};
+handle_call({set_acceleration, N}, _From, Ship) ->
+	{reply, {}, Ship#ship{acceleration=N}};
 
 handle_call({set_turn, N}, _From, Ship) ->
 	{reply, {}, Ship#ship{turn=N}};
@@ -98,8 +98,8 @@ calcMovedY(Ship) ->
 	Ship#ship.y + math:sin(Ship#ship.direction) * Ship#ship.velocity.
 
 calcVelocity(Ship) ->
-	% current velocity + thrust - friction
-	Ship#ship.velocity + Ship#ship.thrust.
+	% current velocity + acceleration - friction
+	Ship#ship.velocity + Ship#ship.acceleration.
 
 calcDirection(Ship) ->
 	%util:mod(Ship#ship.direction + Ship#ship.turn, math:pi()*2).
@@ -109,8 +109,11 @@ ship_to_dict(Ship) ->
 	{
 		ship_status, [
 			{name, Ship#ship.name},
-			{location, Ship#ship.x, Ship#ship.y, Ship#ship.direction, Ship#ship.velocity},
-			{vector, Ship#ship.thrust, Ship#ship.turn},
+			{location, Ship#ship.x, Ship#ship.y},
+			{velocity, Ship#ship.velocity},
+			{acceleration, Ship#ship.acceleration},
+			{direction, Ship#ship.direction},
+			{turn, Ship#ship.turn},
 			{health, Ship#ship.health}
 		]
 	}.
@@ -121,8 +124,8 @@ ship_to_dict(Ship) ->
 set_captain(ShipPid, CaptainPid) ->
 	gen_server:call(ShipPid, {set_captain, CaptainPid}).
 
-set_thrust(ShipPid, N) ->
-	gen_server:call(ShipPid, {set_thrust, N}).
+set_acceleration(ShipPid, N) ->
+	gen_server:call(ShipPid, {set_acceleration, N}).
 
 set_turn(ShipPid, N) ->
 	gen_server:call(ShipPid, {set_turn, N}).

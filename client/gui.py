@@ -132,6 +132,7 @@ class _App:
             )
         elif self.mode == MODE_SEA:
             self.render_sea(view_w, view_h)
+            self.render_sea_controls(view_w, view_h)
         else:
              self.canvas.create_text(
                 3, 3,
@@ -163,11 +164,31 @@ class _App:
                 state="disabled",
             )
             ship.location = (
-                ship.location[0] + math.cos(ship.location[3]) * ship.location[2] * 0.2,
-                ship.location[1] + math.sin(ship.location[3]) * ship.location[2] * 0.2,
-                ship.location[2] + ship.vector[0],
-                ship.location[3] + ship.vector[1]
+                ship.location[0] + math.cos(ship.direction) * ship.velocity * 0.2,
+                ship.location[1] + math.sin(ship.direction) * ship.velocity * 0.2
             )
+            ship.velocity = ship.velocity + ship.acceleration
+            ship.direction = ship.direction + ship.turn
+
+    def render_sea_controls(self, view_w, view_h):
+        def button(x, y, cmd):
+            btn = self.canvas.create_rectangle(
+                x, y,
+                x+10, y+10,
+                fill="#afa", outline="#000", tags="controls",
+            )
+            def accel(e):
+                self.send(cmd)
+            self.canvas.tag_bind(btn, "<1>", accel)
+
+        x0 = view_w - 60
+        y0 = view_h - 80
+        button(x0+20, y0,    "setAcceleration  1")
+        button(x0+20, y0+20, "setAcceleration  0")
+        button(x0+20, y0+60, "setAcceleration -1")
+        button(x0,    y0+40, "setTurn -1")
+        button(x0+20, y0+40, "setTurn  0")
+        button(x0+40, y0+40, "setTurn  1")
 
     def render_common(self, view_w, view_h):
         w = 300

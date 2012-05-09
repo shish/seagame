@@ -4,4 +4,4 @@
 -record(zone, {name, objects, clients}).
 -record(user, {name, home_zone_name}).
 -record(client, {name, ship_pid, zone_pid, frontend, active}).
--record(ship, {name, x, y, turn, direction, thrust, velocity, captain_id, health, zone_pid}).
+-record(ship, {name, x, y, turn, direction, acceleration, velocity, captain_id, health, zone_pid}).

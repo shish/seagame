@@ -79,12 +79,16 @@ handleClientCommand(Client, {"time"}) ->
 	client:send_to_frontend(Client, {"time", time()}),
 	Client;
 
-handleClientCommand(Client, {"setThrust", N}) ->
-	ship:set_thrust(Client#client.ship_pid, util:clamp(-10, N, 100)),
+handleClientCommand(Client, {"setAcceleration", N}) ->
+	ship:set_acceleration(Client#client.ship_pid, util:clamp(-10, N, 100)),
 	Client;
 
 handleClientCommand(Client, {"setTurn", N}) ->
 	ship:set_turn(Client#client.ship_pid, util:clamp(-100, N, 100)),
+	Client;
+
+handleClientCommand(Client, Cmd) ->
+	io:format("Client ~p got unknown command: ~p~n", [self(), Cmd]),
 	Client.
 
 
