@@ -46,7 +46,7 @@ handle_call({damage, N}, _From, Ship) ->
 		DamagedShip#ship.health =< 0 ->
 			io:format("Ship ~p destroyed, exiting~n", [self()]),
 			exit(exploded);
-		DamagedShip#ship.health =< 0 ->
+		DamagedShip#ship.health > 0 ->
 			DamagedShip
 	end,
 	{reply, {}, DamagedShip};
