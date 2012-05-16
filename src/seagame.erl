@@ -1,7 +1,10 @@
 -module(seagame).
 -behaviour(application).
 -behaviour(supervisor).
--export([start/2, stop/1, init/1]).
+-export([start/0, start/2, stop/1, init/1]).
+
+start() ->
+	start(normal, []).
 
 start(normal, _Args) ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, {}).
