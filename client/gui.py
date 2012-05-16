@@ -1,12 +1,15 @@
 #!/usr/bin/python
 
 from Tkinter import *
+import Image
+import ImageTk
 import sys
 import socket
 import select
 import time
 import math
 from py_interface import erl_term
+from glob import glob
 
 VERSION="0.0.0"
 
@@ -71,6 +74,15 @@ class _App:
 
         master.config(menu=menubar)
 
+    def get_photo_image(self, base, rotation=0):
+        round_rotation = int(rotation % 360) / 18 * 360
+        key = base+"-"+str(rotation)
+        if base not in self.images:
+            self.images[base] = Image.open(glob("images/%s.*" % base)[0])
+        if key not in self.photo_images:
+            self.photo_images[key] = ImageTk.PhotoImage(self.images[base].rotate(rotation))
+        return self.photo_images[key]
+
     def __init__(self, master):
         self.master = master
         self.menu = self.__menu(master)
@@ -80,6 +92,8 @@ class _App:
         self.server_time = (0, 0, 0)
         self.ship_statuses = {}
         self.zone_status = None
+        self.images = {}
+        self.photo_images = {}
 
         self.canvas = Canvas(
             master,
@@ -131,7 +145,8 @@ class _App:
                 state="disabled",
             )
         elif self.mode == MODE_SEA:
-            self.render_sea(view_w, view_h)
+            self.render_sea_base(view_w, view_h)
+            self.render_sea_ships(view_w, view_h)
             self.render_sea_controls(view_w, view_h)
         else:
              self.canvas.create_text(
@@ -143,9 +158,14 @@ class _App:
         self.render_common(view_w, view_h)
         self.master.after(200, self.render_loop)
 
-    def render_sea(self, view_w, view_h):
-        x0 = view_w/2
-        y0 = view_h/2
+    def render_sea_base(self, view_w, view_h):
+        img = self.get_photo_image("sea")
+        img_w = img.width()
+        img_h = img.height()
+        for x in range(0, view_w+img_w, img_w):
+            for y in range(0, view_h+img_h, img_h):
+                self.canvas.create_image(x, y, anchor=NW, image=img)
+
         text = "Sea Mode"
         if self.zone_status:
             text = text + ": " + str(self.zone_status.name)
@@ -155,20 +175,23 @@ class _App:
             font="TkFixedFont",
             state="disabled",
         )
+
+    def render_sea_ships(self, view_w, view_h):
+        x0 = view_w/2
+        y0 = view_h/2
         for shipname in self.ship_statuses:
             ship = self.ship_statuses[shipname]
-            self.canvas.create_rectangle(
-                x0+ship.location[0],    y0+ship.location[1],
-                x0+ship.location[0]+10, y0+ship.location[1]+10,
-                fill="#afa", outline="#000", tags="ship",
-                state="disabled",
+            self.canvas.create_image(
+                x0+ship.location[0], y0+ship.location[1],
+                image=self.get_photo_image("cattrel", -ship.direction/3.1415*360)
             )
+            # TODO: separate thread for client-side prediction?
             ship.location = (
                 ship.location[0] + math.cos(ship.direction) * ship.velocity * 0.2,
                 ship.location[1] + math.sin(ship.direction) * ship.velocity * 0.2
             )
-            ship.velocity = ship.velocity + ship.acceleration
-            ship.direction = ship.direction + ship.turn
+            ship.velocity = ship.velocity + ship.acceleration * 0.2
+            ship.direction = ship.direction + ship.turn * 0.2
 
     def render_sea_controls(self, view_w, view_h):
         def button(x, y, cmd):
