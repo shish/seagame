@@ -54,12 +54,23 @@ client:
 		recieves messages, acts on them
 		sends responses to the frontend
 
-world:
+world: gen_server
 	get_zone(World, ZoneName) ->
 		{ok, ZonePid}.
 
-zone:
+zone: gen_server
 	add_object(Zone, Object) -> ok
 	remove_object(Zone, Object) -> ok
 	get_objects(Zone) -> [...]
 	broadcast_to_objects(Zone, Msg) -> ok
+
+ship: gen_server
+	set_captain(ShipPid, ClientPid) ->
+	set_turn(ShipPid, Radians) ->
+	set_acceleration(ShipPid, Percent) ->
+	! {tick}
+
+authdb: gen_server
+	get_user(Username, Password) ->
+		{ok, UserRecord}
+		{error, ErrorMessage}
