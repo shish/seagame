@@ -1,44 +1,64 @@
 -module(tcp_front_end).
--export([start_link/1, start_tcp_server/1, tcp_input_handler/1]).
+-behaviour(gen_server).
+-export([start_link/1]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-record(connection, {socket, client}).
+-define(SOCK(Msg), {tcp, _Port, Msg}).
+
+% gen_server API
+
+init(Socket) ->
+	gen_server:cast(self(), accept),
+	{ok, #connection{socket=Socket}}.
+
+handle_call(Message, _From, State) ->
+	io:format("Unexpected tcp_front_end call: ~p~n", [Message]),
+	{reply, {}, State}.
 
 
-start_link(Port) ->
-	Pid = spawn_link(tcp_front_end, start_tcp_server, [Port]),
-	{ok, Pid}.
+handle_cast(accept, S = #connection{socket=ListenSocket}) ->
+	io:format("Waiting for incoming connection to socket ~p~n", [ListenSocket]),
+    {ok, AcceptSocket} = gen_tcp:accept(ListenSocket),
+	% tell parent to start a new front end, to wait for the next connection
+    tcp_front_end_sup:start_socket(),
+    {noreply, S#connection{socket=AcceptSocket, client=client:start(self())}};
+
+handle_cast(Message, State) ->
+	io:format("Unexpected tcp_front_end cast: ~p~n", [Message]),
+	{noreply, State}.
 
 
-start_tcp_server(Port) ->
-	{ok, LSock} = gen_tcp:listen(Port, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]),
-	run_tcp_server(LSock).
+handle_info({tcp, _Port, Line}, State=#connection{client=ClientPid}) ->
+	Tokens = list_to_tuple(string:tokens(Line, " \n")),
+	io:format("TCP Frontend ~p got data from network, sending to ~p:~n  ~p~n", [self(), ClientPid, Tokens]),
+	ClientPid ! {cmd, Tokens},
+	{noreply, State};
 
-run_tcp_server(LSock) ->
-	io:format("Waiting for incoming socket~n"),
-	{ok, Sock} = gen_tcp:accept(LSock),
-	io:format("Spawning new thread to handle socket~n"),
-	spawn(tcp_front_end, tcp_input_handler, [Sock]),
-	run_tcp_server(LSock).
+handle_info({tcp_closed, _Port}, State=#connection{client=ClientPid}) ->
+	io:format("Socket closed for client ~p~n", [ClientPid]),
+	ClientPid ! disconnect,
+	exit(normal),
+	{noreply, State};
+
+handle_info({msg, X}, State=#connection{client=ClientPid, socket=Socket}) ->
+	io:format("TCP Frontend ~p got data from ~p, sending to network:~n  ~p~n", [self(), ClientPid, X]),
+	gen_tcp:send(Socket, io_lib:format("~p~n", [X])),
+	{noreply, State};
+
+handle_info(Message, State) ->
+	io:format("Unexpected tcp_front_end info: ~p~n", [Message]),
+	{noreply, State}.
 
 
-tcp_input_handler(Socket) ->
-	tcp_input_handler(client:start(self()), Socket).
+terminate(Reason, State) ->
+	{stop, Reason, State}.
 
-tcp_input_handler(ClientPid, Socket) ->
-	case gen_tcp:recv(Socket, 0, 100) of
-		{ok, Bin} ->
-			io:format("TCP Frontend ~p got data from network, sending to ~p:~n  ~p~n", [self(), ClientPid, binary_to_term(Bin)]),
-			ClientPid ! {cmd, binary_to_term(Bin)};
-		{error, timeout} ->
-			nowt;
-		{error, closed} ->
-			io:format("Socket closed for client ~p~n", [ClientPid]),
-			ClientPid ! disconnect,
-			exit("Socket disconnected")
-	end,
-	receive
-		{msg, X} ->
-			io:format("TCP Frontend ~p got data from ~p, sending to network:~n  ~p~n", [self(), ClientPid, X]),
-			gen_tcp:send(Socket, term_to_binary(X))
-	after 100 ->
-		nowt
-	end,
-	tcp_input_handler(ClientPid, Socket).
+
+code_change(_PreviousVersion, State, _Extra) ->
+	{ok, State}.
+
+
+% tcp_front_end API
+
+start_link(LSock) ->
+	gen_server:start_link(?MODULE, LSock, []).

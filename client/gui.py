@@ -8,7 +8,6 @@ import socket
 import select
 import time
 import math
-from py_interface import erl_term
 from glob import glob
 
 VERSION="0.0.0"
@@ -27,13 +26,90 @@ def typify(data):
         return data
 
 
+def read_term(data):
+    if len(data) == 0:
+        return None, data
+
+    # tuple
+    elif data[0] == "{":
+        data = data[1:]
+        tup = []
+        while True:
+            if data[0] == "}":
+                data = data[1:]
+                break
+            elif data[0] in ", \n":
+                data = data[1:]
+            else:
+                el, data = read_term(data)
+                tup.append(el)
+        return tuple(tup), data
+
+    # list
+    elif data[0] == "[":
+        data = data[1:]
+        tup = []
+        while True:
+            if data[0] == "]":
+                data = data[1:]
+                break
+            elif data[0] in ", \n":
+                data = data[1:]
+            else:
+                el, data = read_term(data)
+                tup.append(el)
+        return tup, data
+
+    # string
+    elif data[0] == '"':
+        data = data[1:]
+        string = ""
+        while True:
+            if data[0] == '"':
+                data = data[1:]
+                break
+            else:
+                string = string + data[0]
+                data = data[1:]
+        return string, data
+
+    # atom
+    elif data[0] in 'abcdefghijklmnopqrstuvwxyz':
+        string = ""
+        while True:
+            if len(data) == 0 or data[0] not in 'abcdefghijklmnopqrstuvwxyz_0123456789':
+                break
+            else:
+                string = string + data[0]
+                data = data[1:]
+        return string, data
+
+    # number
+    elif data[0] in '0123456789':
+        string = ""
+        num_type = int
+        while True:
+            if len(data) == 0 or data[0] not in '0123456789.':
+                break
+            else:
+                if data[0] == ".":
+                    num_type = float
+                string = string + data[0]
+                data = data[1:]
+        return num_type(string), data
+
+    else:
+        data = data[1:]
+        return read_term(data)
+
+
 class TupleDict:
     def __init__(self, stats):
         for tup in stats:
             if len(tup) == 2:
-                setattr(self, tup[0].atomText, tup[1])
+                setattr(self, tup[0], tup[1])
             else:
-                setattr(self, tup[0].atomText, tup[1:])
+                setattr(self, tup[0], tup[1:])
 
 class ZoneStatus(TupleDict):
     pass
@@ -94,6 +170,7 @@ class _App:
         self.zone_status = None
         self.images = {}
         self.photo_images = {}
+        self.network_input_buffer = ""
 
         self.canvas = Canvas(
             master,
@@ -246,40 +323,37 @@ class _App:
         d = self.input.get()
         self.show_text(">>> "+d)
         self.send(d)
+        self.input.delete(0, END)
 
     def handle_network_input(self, sd, mask):
-        d = self.socket.recv(4096)
-        term = erl_term.BinaryToTerm(d)
+        self.network_input_buffer = self.network_input_buffer + self.socket.recv(4096)
 
-        if type(term[0]) == str:
-            msg_type = term[0]
-        else:
-            msg_type = term[0].atomText
+        while True:
+            term, self.network_input_buffer = read_term(self.network_input_buffer)
 
-        if msg_type == "notification":
-            self.notifications.insert(0, (time.time(), str(term[1])))
-        elif msg_type == "pong":
-            self.show_text("PING-PONG: "+str(time.time() - self.last_ping))
-        elif msg_type == "board_ship":
-            self.mode = MODE_SEA
-        elif msg_type == "leave_ship":
-            self.mode = MODE_DOCK
-        elif msg_type == "time":
-            self.server_time = term[1]
-        elif msg_type == "ship_status":
-            ship_status = ShipStatus(term[1])
-            self.ship_statuses[ship_status.name] = ship_status
-        elif msg_type == "zone":
-            self.zone_status = ZoneStatus(term[1])
-        else:
-            self.show_text("unknown message: "+str(term))
+            if not term:
+                break
+
+            if term[0] == "notification":
+                self.notifications.insert(0, (time.time(), str(term[1])))
+            elif term[0] == "pong":
+                self.show_text("PING-PONG: "+str(time.time() - self.last_ping))
+            elif term[0] == "board_ship":
+                self.mode = MODE_SEA
+            elif term[0] == "leave_ship":
+                self.mode = MODE_DOCK
+            elif term[0] == "time":
+                self.server_time = term[1]
+            elif term[0] == "ship_status":
+                ship_status = ShipStatus(term[1])
+                self.ship_statuses[ship_status.name] = ship_status
+            elif term[0] == "zone":
+                self.zone_status = ZoneStatus(term[1])
+            else:
+                self.show_text("unknown message: "+str(term))
 
     def send(self, d):
-        parts = d.split()
-        self.input.delete(0, END)
-        if parts:
-            parts = [typify(p) for p in parts]
-            self.socket.send(erl_term.TermToBinary(tuple(parts)))
+        self.socket.send(d+"\n")
 
     def show_text(self, text):
         self.output.insert(END, str(text)+"\n")
@@ -295,6 +369,20 @@ def main(argv):
     root.title("Seagame GUI")
     _App(root)
     root.mainloop()
+
+
+def test():
+    print read_term("")
+    print read_term("{}")
+    print read_term("[]")
+    print read_term("42")
+    print read_term("42.5")
+    print read_term('"hello"')
+    print read_term('{"hello", "there", "bob"}')
+    print read_term('[123, 45.6]')
+    print read_term('{"zone_status", [{weather, "calm"}, {police, "active"}]}')
+    print read_term('{"it", "is"} ["a", "nice"] "day"')
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
