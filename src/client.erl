@@ -83,6 +83,10 @@ handleClientCommand(Client, {"setAcceleration", N}) ->
 	ship:set_acceleration(Client#client.ship_pid, util:clamp(-10, N, 100)),
 	Client;
 
+handleClientCommand(Client, {"setVelocity", N}) ->
+	ship:set_velocity(Client#client.ship_pid, util:clamp(-1, N, 5)),
+	Client;
+
 handleClientCommand(Client, {"setTurn", N}) ->
 	ship:set_turn(Client#client.ship_pid, util:clamp(-100, N, 100)),
 	Client;
