@@ -1,38 +1,92 @@
 -module(client).
+-behaviour(gen_server).
 -include("records.hrl").
--export([start/1, clientProcess/1, send_to_frontend/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([start_link/1, send_message/2, send_command/2]).
 
-start(Frontend) ->
-	spawn(client, clientProcess, [#client{name=undefined, frontend=Frontend, ship_pid=undefined, active=true, zone_pid=undefined}]).
 
-clientProcess(Client) ->
-	receive
-		disconnect ->
-			io:format("Client ~p lost its front-end, logging out~n", [self()]),
-			exit(disconnect);
-		{cmd, Cmd} -> 
-			io:format("Client ~p got command:~n  ~p~n", [Client#client.name, Cmd]),
-			ChangedClient = handleClientCommand(Client, Cmd),
-			clientProcess(ChangedClient);
-		{msg, Msg} ->
-			io:format("Client ~p got message:~n  ~p~n", [Client#client.name, Msg]),
-			Client#client.frontend ! {msg, Msg},
-			clientProcess(Client);
-		X -> 
-			io:format("Client ~p got unknown message:~n  ~p~n", [Client#client.name, X]),
-			clientProcess(Client)
+% gen_server API
+
+init([Frontend]) ->
+	{ok, #client{name=undefined, frontend=Frontend, ship_pid=undefined, active=true, zone_pid=undefined}}.
+
+
+handle_call(Message, _From, State) ->
+	io:format("Unexpected client call: ~p~n", [Message]),
+	{reply, {}, State}.
+
+
+handle_cast({msg, Msg}, Client) ->
+	io:format("Client ~p got message:~n  ~p~n", [Client#client.name, Msg]),
+	gen_server:cast(Client#client.frontend, {msg, Msg}),
+	{noreply, Client};
+
+handle_cast({cmd, Cmd}, Client) ->
+	io:format("Client ~p got command:~n  ~p~n", [Client#client.name, Cmd]),
+	Client2 = handleClientCommand(Client, Cmd),
+	{noreply, Client2};
+
+handle_cast(Message, State) ->
+	io:format("Unexpected client cast: ~p~n", [Message]),
+	{noreply, State}.
+
+
+handle_info({'EXIT', _Pid, Reason}, State) ->
+	io:format("Client ~p lost its front-end (~p), logging out~n", [self(), Reason]),
+	{stop, normal, State};
+
+handle_info(Message, State) ->
+	io:format("Unexpected client info: ~p~n", [Message]),
+	{noreply, State}.
+
+
+terminate(Reason, State) ->
+	{stop, Reason, State}.
+
+
+code_change(_PreviousVersion, State, _Extra) ->
+	{ok, State}.
+
+
+% client API
+
+start_link(Frontend) ->
+	gen_server:start_link(?MODULE, [Frontend], []).
+
+
+send_command(ClientPid, Cmd) ->
+	gen_server:cast(ClientPid, {cmd, Cmd}).
+
+
+send_message(Client, Msg) ->
+	if
+		is_pid(Client) ->
+			gen_server:cast(Client, {msg, Msg});
+		is_tuple(Client) ->
+			gen_server:cast(Client#client.frontend, {msg, Msg})
 	end.
+
 
 handleClientCommand(Client, {"login", Username, Password}) ->
 	{ok, UserInfo} = authdb:get_user(Username, Password),
 	io:format("INFO: Client ~p logged in as ~p~n", [self(), UserInfo#user.name]),
-	client:send_to_frontend(Client, {"notification", "Login Successful"}),
+	client:send_message(Client, {"notification", "Login Successful"}),
 	ClientWithName = Client#client{name=UserInfo#user.name},
 	ClientWithZone = handleClientCommand(ClientWithName, {"setZone", UserInfo#user.home_zone_name}),
 	ClientWithZone;
 
 handleClientCommand(Client, {"ping"}) ->
-	client:send_to_frontend(Client, {"pong"}),
+	client:send_message(Client, {"pong"}),
+	Client;
+
+handleClientCommand(Client, {"time"}) ->
+	client:send_message(Client, {"time", time()}),
+	Client;
+
+% if the client isn't logged in, then this will match and prevent
+% any further commands from being processed
+handleClientCommand(Client=#client{name=undefined}, _Cmd) ->
+	client:send_message(Client, {"notification", "Error: Not logged in"}),
 	Client;
 
 handleClientCommand(Client, {"setZone", ZoneName}) ->
@@ -46,12 +100,12 @@ handleClientCommand(Client, {"setZone", ZoneName}) ->
 	zone:add_client(ZonePid, self()),
 	if
 		is_pid(Client#client.ship_pid) ->
-			client:send_to_frontend(Client, {"notification", "Slipstreaming to "++ZoneName}),
+			client:send_message(Client, {"notification", "Slipstreaming to "++ZoneName}),
 			Client#client.ship_pid ! {setZone, ZonePid};
 		true ->
-			client:send_to_frontend(Client, {"notification", "Teleporting to "++ZoneName})
+			client:send_message(Client, {"notification", "Teleporting to "++ZoneName})
 	end,
-	client:send_to_frontend(Client, {"zone", [
+	client:send_message(Client, {"zone", [
 		{name, ZoneName},
 		{weather, "clear"}
 	]}),
@@ -65,19 +119,15 @@ handleClientCommand(Client, {"buyShip"}) ->
 
 handleClientCommand(Client, {"boardShip", ShipPid}) ->
 	ship:set_captain(ShipPid, self()),
-	client:send_to_frontend(Client, {"board_ship"}),
+	client:send_message(Client, {"board_ship"}),
 	ClientWithShip = Client#client{ship_pid = ShipPid},
 	ClientWithShip;
 
 handleClientCommand(Client, {"leaveShip"}) ->
 	ship:set_captain(Client#client.ship_pid, undefined),
-	client:send_to_frontend(Client, {"leave_ship"}),
+	client:send_message(Client, {"leave_ship"}),
 	ClientWithShip = Client#client{ship_pid = undefined},
 	ClientWithShip;
-
-handleClientCommand(Client, {"time"}) ->
-	client:send_to_frontend(Client, {"time", time()}),
-	Client;
 
 handleClientCommand(Client, {"setAcceleration", N}) ->
 	{A, _} = string:to_float(N),
@@ -97,12 +147,3 @@ handleClientCommand(Client, {"setTurn", N}) ->
 handleClientCommand(Client, Cmd) ->
 	io:format("Client ~p got unknown command: ~p~n", [self(), Cmd]),
 	Client.
-
-
-send_to_frontend(Client, Msg) ->
-	if
-		is_pid(Client) ->
-			Client ! {msg, Msg};
-		is_tuple(Client) ->
-			Client#client.frontend ! {msg, Msg}
-	end.

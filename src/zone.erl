@@ -1,8 +1,8 @@
 -module(zone).
 -behaviour(gen_server).
 -include("records.hrl").
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -export([
-	init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3,
 	start_link/1, test/0, ticker/1,
 	add_object/2, remove_object/2, get_objects/1, broadcast_to_objects/2,
 	add_client/2, remove_client/2, get_clients/1, broadcast_to_clients/2
@@ -58,10 +58,8 @@ handle_call({removeClient, Client}, _From, State) ->
 
 handle_call({broadcastToClients, News}, _From, State) ->
 	io:format("Zone ~p broadcasting to clients:~n  ~p~n", [State#zone.name, News]),
-	lists:foreach(fun(Client) -> client:send_to_frontend(Client, News) end, ordsets:to_list(State#zone.clients)),
+	lists:foreach(fun(Client) -> client:send_message(Client, News) end, ordsets:to_list(State#zone.clients)),
 	{reply, ok, State};
-
-
 
 handle_call(Message, _From, State) ->
 	io:format("Unexpected zone call: ~p~n", [Message]),

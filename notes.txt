@@ -37,8 +37,8 @@ front end -> client commands:
 seagame:
 	start() ->
 		starts the world
-		starts the TCP front-end
-		% starts the HTTP front-end
+		starts the TCP front-end supervisor
+		% starts the HTTP front-end supervisor
 	
 	test() ->
 		starts the world
@@ -49,8 +49,8 @@ tcp_front_end:
 	start_linked(Port) ->
 		starts clients, sends those clients messages
 
-client:
-	start(Frontend) ->
+client: gen_server
+	start_link(Frontend) ->
 		recieves messages, acts on them
 		sends responses to the frontend
 
